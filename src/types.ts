@@ -48,12 +48,17 @@ export interface ChartConfig {
     aggregationMethod: string;
   };
   showGridlines: boolean;
+  showEndLabels: boolean;
+  showReferenceLine: boolean;
+  useLinePatterns: boolean;
   legendPosition: LegendPosition;
   recessionShading: boolean;
+  emphasizedSeriesId?: string;
   title: string;
   subtitle: string;
   note?: string;
   highlightDate?: string;
+  highlightLabel?: string;
 }
 
 export type Aspect = '16:9' | '4:3' | 'square' | 'custom';

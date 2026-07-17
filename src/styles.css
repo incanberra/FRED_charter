@@ -1119,6 +1119,19 @@ input[type="range"] {
   stroke-opacity: 0.42;
 }
 
+.reference-line {
+  stroke: var(--brand-primary);
+  stroke-width: 2.2;
+  stroke-dasharray: 12 8;
+  stroke-opacity: 0.58;
+}
+
+.reference-line-label {
+  fill: var(--brand-primary) !important;
+  font-size: 19px;
+  font-weight: 720;
+}
+
 .recession-band {
   fill: var(--brand-grid);
   fill-opacity: 0.2;
@@ -1131,12 +1144,42 @@ input[type="range"] {
   stroke-linejoin: round;
 }
 
+.series-line.is-emphasized {
+  stroke-width: 5.5;
+}
+
+.series-line.is-muted,
+.legend-item.is-muted,
+.end-label.is-muted,
+.snapshot-label.is-muted,
+.snapshot-value.is-muted {
+  opacity: 0.24;
+}
+
 .series-area {
   fill-opacity: 0.2;
 }
 
+.series-area.is-emphasized {
+  fill-opacity: 0.28;
+}
+
+.series-area.is-muted {
+  fill-opacity: 0.055;
+}
+
 .series-bar {
   opacity: 0.92;
+}
+
+.series-bar.is-muted,
+.snapshot-bar.is-muted {
+  opacity: 0.2;
+}
+
+.series-bar.is-emphasized,
+.snapshot-bar.is-emphasized {
+  opacity: 1;
 }
 
 .dual-bar {
@@ -1169,19 +1212,63 @@ input[type="range"] {
   stroke-opacity: 0.68;
 }
 
-.date-highlight circle {
-  fill: var(--brand-primary);
+.end-label-leader {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-opacity: 0.78;
 }
 
-.chart-note rect {
+.end-label circle {
+  stroke: var(--brand-background);
+  stroke-width: 3;
+}
+
+.end-label text {
+  font-size: 20px;
+}
+
+.end-label-name {
+  font-weight: 720;
+}
+
+.end-label-value {
+  fill: var(--ink-muted) !important;
+  font-size: 19px;
+  font-weight: 650;
+}
+
+.chart-callout rect {
   fill: var(--brand-white);
-  stroke: var(--brand-accent);
-  stroke-width: 1.5;
+  stroke: var(--panel-border);
+  stroke-width: 1.6;
 }
 
-.chart-note text {
+.callout-leader {
+  fill: none;
+  stroke: var(--brand-accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.callout-anchor {
+  fill: var(--brand-accent);
+  stroke: var(--brand-background);
+  stroke-width: 3;
+}
+
+.callout-heading {
+  fill: var(--brand-primary) !important;
   font-size: 21px;
-  font-weight: 600;
+  font-weight: 760;
+}
+
+.callout-body {
+  fill: var(--ink-muted) !important;
+  font-size: 21px;
+  font-weight: 560;
 }
 
 .source-footer rect {

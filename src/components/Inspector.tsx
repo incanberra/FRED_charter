@@ -220,6 +220,52 @@ export function Inspector() {
                 dispatch({ type: 'SET_CONFIG', patch: { recessionShading: checked } })
               }
             />
+            <Toggle
+              label="Direct end labels"
+              checked={config.showEndLabels}
+              onChange={(checked) =>
+                dispatch({ type: 'SET_CONFIG', patch: { showEndLabels: checked } })
+              }
+            />
+            <Toggle
+              label="Automatic reference line"
+              checked={config.showReferenceLine}
+              onChange={(checked) =>
+                dispatch({ type: 'SET_CONFIG', patch: { showReferenceLine: checked } })
+              }
+            />
+            <Toggle
+              label="Line patterns"
+              checked={config.useLinePatterns}
+              onChange={(checked) =>
+                dispatch({ type: 'SET_CONFIG', patch: { useLinePatterns: checked } })
+              }
+            />
+            {state.series.length > 1 && (
+              <label>
+                <span>Series emphasis</span>
+                <select
+                  value={
+                    state.series.some((series) => series.id === config.emphasizedSeriesId)
+                      ? config.emphasizedSeriesId
+                      : ''
+                  }
+                  onChange={(event) =>
+                    dispatch({
+                      type: 'SET_CONFIG',
+                      patch: { emphasizedSeriesId: event.target.value || undefined },
+                    })
+                  }
+                >
+                  <option value="">All series equally</option>
+                  {state.series.map((series) => (
+                    <option key={series.id} value={series.id}>
+                      {series.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label>
               <span>Legend</span>
               <select
@@ -286,11 +332,11 @@ export function Inspector() {
               />
             </label>
             <label>
-              <span>Freeform note</span>
+              <span>Callout text</span>
               <textarea
                 rows={3}
                 value={config.note ?? ''}
-                placeholder="Optional chart callout"
+                placeholder="Optional context or interpretation"
                 onChange={(event) =>
                   dispatch({ type: 'SET_CONFIG', patch: { note: event.target.value } })
                 }
@@ -309,6 +355,23 @@ export function Inspector() {
                 }
               />
             </label>
+            <label>
+              <span>Callout heading</span>
+              <input
+                value={config.highlightLabel ?? ''}
+                placeholder="Defaults to the highlighted date"
+                onChange={(event) =>
+                  dispatch({
+                    type: 'SET_CONFIG',
+                    patch: { highlightLabel: event.target.value || undefined },
+                  })
+                }
+              />
+            </label>
+            <p className="control-note">
+              A highlighted date anchors the callout to the emphasized series, or the first
+              series when no emphasis is selected.
+            </p>
           </div>
         </details>
 

@@ -2,13 +2,11 @@ import {
   area,
   curveMonotoneX,
   extent,
-  format,
   line,
   max,
   scaleBand,
   scaleLinear,
   scaleTime,
-  timeFormat,
 } from 'd3';
 import type { ScaleLinear, ScaleTime } from 'd3';
 import {
@@ -19,9 +17,17 @@ import {
   useState,
 } from 'react';
 import { brand } from '../brand';
+import {
+  axisUnitLabel,
+  formatAnnotationDate,
+  formatChartDate,
+  formatChartValue,
+  lineDashPattern,
+  referenceLineFor,
+} from '../lib/chartFormatting';
 import { getObservations } from '../lib/fred';
 import { useChart } from '../state/ChartContext';
-import type { Observation, SeriesSelection } from '../types';
+import type { Observation, SeriesSelection, Transform } from '../types';
 
 interface Point {
   date: Date;
@@ -34,7 +40,6 @@ interface PreparedSeries extends SeriesSelection {
 }
 
 const parseDate = (value: string) => new Date(`${value}T00:00:00`);
-const numberFormat = format(',.3~g');
 
 export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref) {
   const { state } = useChart();
@@ -86,6 +91,14 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
     wrapText(config.title, chartTitleCharactersPerLine(width, compact)).length,
   );
   const wrappedTitleHeight = (titleLineCount - 1) * titleSize * 1.04;
+  const supportsEndLabels = ['line', 'area', 'indexed', 'dual-axis'].includes(
+    config.chartType,
+  );
+  const endLabelSeries = config.chartType === 'dual-axis' ? prepared.slice(0, 1) : prepared;
+  const endLabelWidth =
+    config.showEndLabels && supportsEndLabels && endLabelSeries.length
+      ? Math.min(360, width * 0.18)
+      : 0;
   const plotTop =
     titleTop +
     Math.max(105, height * 0.095) +
@@ -97,7 +110,7 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
       : 0;
   const margin = {
     left: Math.max(115, width * 0.065),
-    right: Math.max(85, width * 0.045) + legendRightWidth,
+    right: Math.max(85, width * 0.045) + legendRightWidth + endLabelWidth,
     top: plotTop,
     bottom: footerHeight + Math.max(100, height * 0.08),
   };
@@ -124,11 +137,15 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
   const x = scaleTime().domain(xDomain).range([margin.left, margin.left + plotWidth]);
   const primarySeries =
     config.chartType === 'dual-axis' ? prepared.slice(0, 1) : prepared;
+  const referenceLine = config.showReferenceLine
+    ? referenceLineFor(config.chartType, config.transform)
+    : null;
   const primaryValues = primarySeries.flatMap((series) =>
     series.points
       .map((point) => point.value)
       .filter((value): value is number => value !== null),
   );
+  if (referenceLine) primaryValues.push(referenceLine.value);
   const y = scaleLinear()
     .domain(paddedDomain(primaryValues))
     .nice(6)
@@ -140,6 +157,9 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
           .map((point) => point.value)
           .filter((value): value is number => value !== null) ?? [])
       : [];
+  if (referenceLine && config.chartType === 'dual-axis') {
+    secondaryValues.push(referenceLine.value);
+  }
   const yRight = scaleLinear()
     .domain(paddedDomain(secondaryValues, true))
     .nice(6)
@@ -148,11 +168,21 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
   const xTicks = x.ticks(Math.max(4, Math.floor(plotWidth / 300)));
   const yTicks = y.ticks(6);
   const yRightTicks = yRight.ticks(6);
-  const dateLabel = dateFormatter(xDomain);
   const sourceFooter = buildSourceFooter(state.series);
   const recessionIntervals = getRecessionIntervals(recessionData, xDomain[1]);
   const primaryBaseline = y(baselineForDomain(y.domain()));
   const secondaryBaseline = yRight(baselineForDomain(yRight.domain()));
+  const primaryUnits = commonUnits(primarySeries);
+  const annotationSeries =
+    prepared.find((series) => series.id === config.emphasizedSeriesId) ?? prepared[0];
+  const annotationPoint =
+    config.highlightDate && annotationSeries
+      ? nearestPoint(annotationSeries.points, parseDate(config.highlightDate))
+      : null;
+  const annotationYScale =
+    config.chartType === 'dual-axis' && annotationSeries?.id === prepared[1]?.id
+      ? yRight
+      : y;
 
   if (config.chartType === 'snapshot-ranking') {
     return (
@@ -209,6 +239,8 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
           x={config.legendPosition === 'right' ? margin.left + plotWidth + 60 : margin.left}
           y={config.legendPosition === 'right' ? margin.top : plotTop - 52}
           availableWidth={config.legendPosition === 'right' ? legendRightWidth - 70 : plotWidth}
+          emphasizedSeriesId={config.emphasizedSeriesId}
+          useLinePatterns={config.useLinePatterns}
         />
       )}
 
@@ -237,7 +269,17 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
             />
           ))}
 
-        {y.domain()[0] < 0 && y.domain()[1] > 0 && (
+        {referenceLine && (
+          <line
+            className="reference-line"
+            x1={margin.left}
+            x2={margin.left + plotWidth}
+            y1={y(referenceLine.value)}
+            y2={y(referenceLine.value)}
+          />
+        )}
+
+        {!referenceLine && y.domain()[0] < 0 && y.domain()[1] > 0 && (
           <line
             className="zero-line"
             x1={margin.left}
@@ -258,7 +300,7 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
             return areaPath ? (
               <path
                 key={series.id}
-                className="series-area"
+                className={seriesClassName('series-area', series.id, config.emphasizedSeriesId)}
                 d={areaPath}
                 fill={series.color}
               />
@@ -273,6 +315,8 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
               key={series.id}
               series={series}
               seriesIndex={index}
+              emphasizedSeriesId={config.emphasizedSeriesId}
+              useLinePatterns={config.useLinePatterns}
               x={x}
               y={y}
             />
@@ -285,11 +329,19 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
             y={y}
             plotWidth={plotWidth}
             baseline={primaryBaseline}
+            emphasizedSeriesId={config.emphasizedSeriesId}
           />
         )}
 
         {config.chartType === 'dual-axis' && prepared[0] && (
-          <SeriesLine series={prepared[0]} seriesIndex={0} x={x} y={y} />
+          <SeriesLine
+            series={prepared[0]}
+            seriesIndex={0}
+            emphasizedSeriesId={config.emphasizedSeriesId}
+            useLinePatterns={config.useLinePatterns}
+            x={x}
+            y={y}
+          />
         )}
         {config.chartType === 'dual-axis' && prepared[1] && (
           <SecondaryBars
@@ -298,6 +350,7 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
             y={yRight}
             plotWidth={plotWidth}
             baseline={secondaryBaseline}
+            emphasizedSeriesId={config.emphasizedSeriesId}
           />
         )}
 
@@ -309,14 +362,35 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
               y1={margin.top}
               y2={margin.top + plotHeight}
             />
-            <circle
-              cx={x(parseDate(config.highlightDate))}
-              cy={margin.top + 12}
-              r={8}
-            />
           </g>
         )}
       </g>
+
+      {referenceLine && (
+        <text
+          className="reference-line-label"
+          x={margin.left + plotWidth - 10}
+          y={y(referenceLine.value) - 13}
+          textAnchor="end"
+        >
+          {referenceLine.label}
+        </text>
+      )}
+
+      {config.showEndLabels && supportsEndLabels && endLabelSeries.length > 0 && (
+        <EndLabels
+          series={endLabelSeries}
+          x={x}
+          y={y}
+          plotRight={margin.left + plotWidth}
+          plotTop={margin.top}
+          plotBottom={margin.top + plotHeight}
+          emphasizedSeriesId={config.emphasizedSeriesId}
+          transform={config.transform}
+          indexed={config.chartType === 'indexed'}
+          useLinePatterns={config.useLinePatterns}
+        />
+      )}
 
       <g className="axis x-axis">
         <line
@@ -329,7 +403,7 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
           <g key={tick.toISOString()} transform={`translate(${x(tick)}, ${margin.top + plotHeight})`}>
             <line y2={12} />
             <text y={43} textAnchor="middle">
-              {dateLabel(tick)}
+              {formatChartDate(tick, xDomain)}
             </text>
           </g>
         ))}
@@ -346,7 +420,12 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
           <g key={tick} transform={`translate(${margin.left}, ${y(tick)})`}>
             <line x2={-12} />
             <text x={-24} dy="0.34em" textAnchor="end">
-              {formatTick(tick)}
+              {formatChartValue(tick, {
+                units: primaryUnits,
+                transform: config.transform,
+                indexed: config.chartType === 'indexed',
+                mode: 'axis',
+              })}
             </text>
           </g>
         ))}
@@ -356,7 +435,7 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
           y={margin.top - 25}
           textAnchor="start"
         >
-          {axisUnit(prepared, config.chartType === 'indexed')}
+          {axisUnitLabel(primaryUnits, config.transform, config.chartType === 'indexed')}
         </text>
       </g>
 
@@ -375,7 +454,11 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
             >
               <line x2={12} />
               <text x={24} dy="0.34em" textAnchor="start">
-                {formatTick(tick)}
+                {formatChartValue(tick, {
+                  units: prepared[1].meta.units,
+                  transform: config.transform,
+                  mode: 'axis',
+                })}
               </text>
             </g>
           ))}
@@ -385,27 +468,25 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
             y={margin.top - 25}
             textAnchor="end"
           >
-            {prepared[1].meta.units}
+            {axisUnitLabel(prepared[1].meta.units, config.transform, false)}
           </text>
         </g>
       )}
 
-      {config.note && (
-        <g
-          className="chart-note"
-          transform={`translate(${margin.left + plotWidth - Math.min(520, plotWidth * 0.38)}, ${
-            margin.top + 40
-          })`}
-        >
-          <rect width={Math.min(520, plotWidth * 0.38)} height={100} rx={8} />
-          <text x={24} y={37}>
-            {wrapText(config.note, compact ? 28 : 48).map((lineText, index) => (
-              <tspan key={`${lineText}-${index}`} x={24} dy={index === 0 ? 0 : 30}>
-                {lineText}
-              </tspan>
-            ))}
-          </text>
-        </g>
+      {(config.note || config.highlightDate || config.highlightLabel) && (
+        <AnnotationCallout
+          note={config.note}
+          label={config.highlightLabel}
+          highlightDate={config.highlightDate}
+          point={annotationPoint}
+          x={x}
+          y={annotationYScale}
+          plotLeft={margin.left}
+          plotRight={margin.left + plotWidth}
+          plotTop={margin.top}
+          plotBottom={margin.top + plotHeight}
+          compact={compact}
+        />
       )}
 
       <SourceFooter
@@ -469,11 +550,15 @@ function ChartHeader({
 function SeriesLine({
   series,
   seriesIndex,
+  emphasizedSeriesId,
+  useLinePatterns,
   x,
   y,
 }: {
   series: PreparedSeries;
   seriesIndex: number;
+  emphasizedSeriesId?: string;
+  useLinePatterns: boolean;
   x: ScaleTime<number, number>;
   y: ScaleLinear<number, number>;
 }) {
@@ -485,12 +570,140 @@ function SeriesLine({
   if (!path) return null;
   return (
     <path
-      className="series-line"
+      className={seriesClassName('series-line', series.id, emphasizedSeriesId)}
       d={path}
       stroke={series.color}
-      strokeDasharray={lineDash(seriesIndex)}
+      strokeDasharray={lineDashPattern(seriesIndex, useLinePatterns)}
       vectorEffect="non-scaling-stroke"
     />
+  );
+}
+
+function EndLabels({
+  series,
+  x,
+  y,
+  plotRight,
+  plotTop,
+  plotBottom,
+  emphasizedSeriesId,
+  transform,
+  indexed,
+  useLinePatterns,
+}: {
+  series: PreparedSeries[];
+  x: ScaleTime<number, number>;
+  y: ScaleLinear<number, number>;
+  plotRight: number;
+  plotTop: number;
+  plotBottom: number;
+  emphasizedSeriesId?: string;
+  transform: Transform;
+  indexed: boolean;
+  useLinePatterns: boolean;
+}) {
+  const labels = layoutEndLabels(series, y, plotTop + 18, plotBottom - 18, 56);
+
+  return (
+    <g className="end-labels">
+      {labels.map(({ series: item, point, seriesIndex, labelY }) => {
+        const muted = Boolean(emphasizedSeriesId && emphasizedSeriesId !== item.id);
+        const className = muted ? 'end-label is-muted' : 'end-label';
+        const anchorX = x(point.date);
+        const anchorY = y(point.value!);
+        return (
+          <g key={item.id} className={className}>
+            <path
+              className="end-label-leader"
+              d={`M${anchorX},${anchorY} L${plotRight + 10},${anchorY} L${plotRight + 22},${labelY}`}
+              stroke={item.color}
+              strokeDasharray={lineDashPattern(seriesIndex, useLinePatterns)}
+            />
+            <circle cx={anchorX} cy={anchorY} r={6} fill={item.color} />
+            <text x={plotRight + 34} y={labelY - 6}>
+              <tspan className="end-label-name">{truncate(item.label, 25)}</tspan>
+              <tspan className="end-label-value" x={plotRight + 34} dy={27}>
+                {formatChartValue(point.value!, {
+                  units: item.meta.units,
+                  transform,
+                  indexed,
+                  mode: 'label',
+                })}
+              </tspan>
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+function AnnotationCallout({
+  note,
+  label,
+  highlightDate,
+  point,
+  x,
+  y,
+  plotLeft,
+  plotRight,
+  plotTop,
+  plotBottom,
+  compact,
+}: {
+  note?: string;
+  label?: string;
+  highlightDate?: string;
+  point: Point | null;
+  x: ScaleTime<number, number>;
+  y: ScaleLinear<number, number>;
+  plotLeft: number;
+  plotRight: number;
+  plotTop: number;
+  plotBottom: number;
+  compact: boolean;
+}) {
+  const requestedDate = highlightDate ? parseDate(highlightDate) : null;
+  const anchorX = point ? x(point.date) : requestedDate ? x(requestedDate) : null;
+  const anchorY = point ? y(point.value!) : requestedDate ? plotTop + (plotBottom - plotTop) * 0.48 : null;
+  const boxWidth = Math.min(520, (plotRight - plotLeft) * (compact ? 0.5 : 0.4));
+  const noteLines = note ? wrapText(note, compact ? 30 : 48, 3) : [];
+  const boxHeight = 62 + Math.max(0, noteLines.length) * 30;
+  const placeOnRight = anchorX == null || anchorX < (plotLeft + plotRight) / 2;
+  const boxX = placeOnRight ? plotRight - boxWidth - 20 : plotLeft + 20;
+  const boxY = plotTop + 24;
+  const heading =
+    label?.trim() || (requestedDate ? formatAnnotationDate(requestedDate) : 'Chart note');
+  const connectorX = placeOnRight ? boxX : boxX + boxWidth;
+  const connectorY = Math.min(boxY + boxHeight - 24, boxY + 46);
+
+  return (
+    <g className="chart-callout">
+      {anchorX != null && anchorY != null && (
+        <>
+          <path
+            className="callout-leader"
+            d={`M${anchorX},${anchorY} L${anchorX},${connectorY} L${connectorX},${connectorY}`}
+          />
+          <circle className="callout-anchor" cx={anchorX} cy={anchorY} r={7} />
+        </>
+      )}
+      <g transform={`translate(${boxX}, ${boxY})`}>
+        <rect width={boxWidth} height={boxHeight} rx={7} />
+        <text className="callout-heading" x={24} y={34}>
+          {truncate(heading, compact ? 30 : 46)}
+        </text>
+        {noteLines.length > 0 && (
+          <text className="callout-body" x={24} y={68}>
+            {noteLines.map((lineText, index) => (
+              <tspan key={`${lineText}-${index}`} x={24} dy={index === 0 ? 0 : 30}>
+                {lineText}
+              </tspan>
+            ))}
+          </text>
+        )}
+      </g>
+    </g>
   );
 }
 
@@ -500,12 +713,14 @@ function GroupedBars({
   y,
   plotWidth,
   baseline,
+  emphasizedSeriesId,
 }: {
   series: PreparedSeries[];
   x: ScaleTime<number, number>;
   y: ScaleLinear<number, number>;
   plotWidth: number;
   baseline: number;
+  emphasizedSeriesId?: string;
 }) {
   const dateKeys = [
     ...new Set(series.flatMap((item) => item.points.map((point) => point.dateKey))),
@@ -528,7 +743,7 @@ function GroupedBars({
           width={Math.max(1, inner.bandwidth())}
           height={Math.abs(baseline - yValue)}
           fill={item.color}
-          className="series-bar"
+          className={seriesClassName('series-bar', item.id, emphasizedSeriesId)}
         />
       );
     }),
@@ -541,12 +756,14 @@ function SecondaryBars({
   y,
   plotWidth,
   baseline,
+  emphasizedSeriesId,
 }: {
   series: PreparedSeries;
   x: ScaleTime<number, number>;
   y: ScaleLinear<number, number>;
   plotWidth: number;
   baseline: number;
+  emphasizedSeriesId?: string;
 }) {
   const barWidth = Math.max(4, Math.min(42, (plotWidth / Math.max(series.points.length, 1)) * 0.7));
   return series.points.map((point) => {
@@ -560,7 +777,7 @@ function SecondaryBars({
         width={barWidth}
         height={Math.abs(baseline - yValue)}
         fill={series.color}
-        className="series-bar dual-bar"
+        className={seriesClassName('series-bar dual-bar', series.id, emphasizedSeriesId)}
       />
     );
   });
@@ -582,6 +799,9 @@ const SnapshotChart = forwardRef<SVGSVGElement, SnapshotProps>(function Snapshot
 ) {
   const { state } = useChart();
   const footerHeight = Math.max(84, height * 0.075);
+  const referenceLine = state.config.showReferenceLine
+    ? referenceLineFor('snapshot-ranking', state.config.transform)
+    : null;
   const ranked = series
     .map((item) => {
       const point = [...item.points].reverse().find((candidate) => candidate.value !== null);
@@ -601,6 +821,7 @@ const SnapshotChart = forwardRef<SVGSVGElement, SnapshotProps>(function Snapshot
     .range([margin.top, margin.top + plotHeight])
     .padding(0.28);
   const zero = x(0);
+  const units = commonUnits(series);
 
   return (
     <svg
@@ -640,23 +861,41 @@ const SnapshotChart = forwardRef<SVGSVGElement, SnapshotProps>(function Snapshot
             y={margin.top + plotHeight + 50}
             textAnchor="middle"
           >
-            {formatTick(tick)}
+            {formatChartValue(tick, {
+              units,
+              transform: state.config.transform,
+              mode: 'axis',
+            })}
           </text>
         </g>
       ))}
       <line
-        className="zero-line"
+        className={referenceLine ? 'reference-line' : 'zero-line'}
         x1={zero}
         x2={zero}
         y1={margin.top}
         y2={margin.top + plotHeight}
       />
+      {referenceLine && (
+        <text
+          className="reference-line-label"
+          x={zero + 12}
+          y={margin.top + 22}
+          textAnchor="start"
+        >
+          {referenceLine.label}
+        </text>
+      )}
       {ranked.map((item) => {
         const barStart = Math.min(zero, x(item.latest));
         return (
           <g key={item.id}>
             <text
-              className="snapshot-label"
+              className={seriesClassName(
+                'snapshot-label',
+                item.id,
+                state.config.emphasizedSeriesId,
+              )}
               x={margin.left - 28}
               y={(y(item.id) ?? 0) + y.bandwidth() / 2}
               dy="0.35em"
@@ -665,7 +904,11 @@ const SnapshotChart = forwardRef<SVGSVGElement, SnapshotProps>(function Snapshot
               {truncate(item.label, 30)}
             </text>
             <rect
-              className="snapshot-bar"
+              className={seriesClassName(
+                'snapshot-bar',
+                item.id,
+                state.config.emphasizedSeriesId,
+              )}
               x={barStart}
               y={y(item.id)}
               width={Math.abs(x(item.latest) - zero)}
@@ -674,13 +917,21 @@ const SnapshotChart = forwardRef<SVGSVGElement, SnapshotProps>(function Snapshot
               rx={3}
             />
             <text
-              className="snapshot-value"
+              className={seriesClassName(
+                'snapshot-value',
+                item.id,
+                state.config.emphasizedSeriesId,
+              )}
               x={item.latest >= 0 ? x(item.latest) + 20 : x(item.latest) - 20}
               y={(y(item.id) ?? 0) + y.bandwidth() / 2}
               dy="0.35em"
               textAnchor={item.latest >= 0 ? 'start' : 'end'}
             >
-              {numberFormat(item.latest)}
+              {formatChartValue(item.latest, {
+                units: item.meta.units,
+                transform: state.config.transform,
+                mode: 'label',
+              })}
             </text>
           </g>
         );
@@ -708,25 +959,33 @@ function Legend({
   x,
   y,
   availableWidth,
+  emphasizedSeriesId,
+  useLinePatterns,
 }: {
   series: SeriesSelection[];
   position: 'top' | 'right';
   x: number;
   y: number;
   availableWidth: number;
+  emphasizedSeriesId?: string;
+  useLinePatterns: boolean;
 }) {
   if (position === 'right') {
     return (
       <g className="chart-legend">
         {series.map((item, index) => (
-          <g key={item.id} transform={`translate(${x}, ${y + index * 54})`}>
+          <g
+            key={item.id}
+            className={seriesClassName('legend-item', item.id, emphasizedSeriesId)}
+            transform={`translate(${x}, ${y + index * 54})`}
+          >
             <line
               x1={0}
               x2={35}
               y1={0}
               y2={0}
               stroke={item.color}
-              strokeDasharray={lineDash(index)}
+              strokeDasharray={lineDashPattern(index, useLinePatterns)}
             />
             <text x={52} y={0} dy="0.35em">
               {truncate(item.label, 26)}
@@ -745,14 +1004,18 @@ function Legend({
         const current = cursor;
         cursor += itemWidth;
         return (
-          <g key={item.id} transform={`translate(${current}, 0)`}>
+          <g
+            key={item.id}
+            className={seriesClassName('legend-item', item.id, emphasizedSeriesId)}
+            transform={`translate(${current}, 0)`}
+          >
             <line
               x1={0}
               x2={35}
               y1={0}
               y2={0}
               stroke={item.color}
-              strokeDasharray={lineDash(index)}
+              strokeDasharray={lineDashPattern(index, useLinePatterns)}
             />
             <text x={52} y={0} dy="0.35em">
               {truncate(item.label, 28)}
@@ -831,25 +1094,9 @@ function baselineForDomain(domain: number[]): number {
   return low > 0 ? low : high;
 }
 
-function dateFormatter(domain: [Date, Date]) {
-  const spanDays = (+domain[1] - +domain[0]) / 86400000;
-  if (spanDays < 180) return timeFormat('%d %b');
-  if (spanDays < 730) return timeFormat('%b %Y');
-  return timeFormat('%Y');
-}
-
-function formatTick(value: number): string {
-  const absolute = Math.abs(value);
-  if (absolute >= 1_000_000_000) return `${format('.3~s')(value)}`;
-  if (absolute >= 10_000) return format(',.3~s')(value);
-  if (absolute < 1 && absolute !== 0) return format('.2~f')(value);
-  return format(',.4~g')(value);
-}
-
-function axisUnit(series: PreparedSeries[], indexed: boolean): string {
-  if (indexed) return 'Index (first visible observation = 100)';
+function commonUnits(series: PreparedSeries[]): string | undefined {
   const units = [...new Set(series.map((item) => item.meta.units))];
-  return units.length === 1 ? units[0] : 'Multiple units';
+  return units.length === 1 ? units[0] : undefined;
 }
 
 function buildSourceFooter(series: SeriesSelection[]): string {
@@ -893,7 +1140,7 @@ function getRecessionIntervals(observations: Observation[], domainEnd: Date) {
   return intervals;
 }
 
-function wrapText(text: string, maxCharacters: number): string[] {
+function wrapText(text: string, maxCharacters: number, maxLines = 2): string[] {
   const words = text.split(/\s+/);
   const lines: string[] = [];
   let lineText = '';
@@ -907,7 +1154,7 @@ function wrapText(text: string, maxCharacters: number): string[] {
     }
   });
   if (lineText) lines.push(lineText);
-  const visibleLines = lines.slice(0, 2);
+  const visibleLines = lines.slice(0, maxLines);
   if (lines.length > visibleLines.length && visibleLines.length) {
     const finalIndex = visibleLines.length - 1;
     visibleLines[finalIndex] = `${visibleLines[finalIndex].replace(/…$/, '').trimEnd()}…`;
@@ -929,7 +1176,70 @@ function truncate(value: string, maxLength: number): string {
   return `${value.slice(0, Math.max(1, maxLength - 1)).trim()}…`;
 }
 
-function lineDash(seriesIndex: number): string | undefined {
-  if (seriesIndex < 8) return undefined;
-  return ['18 9', '5 8', '18 7 4 7', '2 7'][(seriesIndex - 8) % 4];
+function seriesClassName(
+  baseClass: string,
+  seriesId: string,
+  emphasizedSeriesId?: string,
+): string {
+  if (!emphasizedSeriesId) return baseClass;
+  return `${baseClass} ${seriesId === emphasizedSeriesId ? 'is-emphasized' : 'is-muted'}`;
+}
+
+function nearestPoint(points: Point[], target: Date): Point | null {
+  const candidates = points.filter(
+    (point): point is Point & { value: number } => point.value !== null,
+  );
+  if (!candidates.length) return null;
+  return candidates.reduce((nearest, point) =>
+    Math.abs(+point.date - +target) < Math.abs(+nearest.date - +target) ? point : nearest,
+  );
+}
+
+function layoutEndLabels(
+  series: PreparedSeries[],
+  y: ScaleLinear<number, number>,
+  top: number,
+  bottom: number,
+  minimumGap: number,
+) {
+  const labels = series
+    .map((item, seriesIndex) => {
+      const point = [...item.points].reverse().find((candidate) => candidate.value !== null);
+      return point
+        ? { series: item, seriesIndex, point, desiredY: y(point.value!), labelY: y(point.value!) }
+        : null;
+    })
+    .filter(
+      (
+        item,
+      ): item is {
+        series: PreparedSeries;
+        seriesIndex: number;
+        point: Point;
+        desiredY: number;
+        labelY: number;
+      } => item !== null,
+    )
+    .sort((first, second) => first.desiredY - second.desiredY);
+
+  let cursor = top;
+  labels.forEach((label) => {
+    label.labelY = Math.max(label.desiredY, cursor);
+    cursor = label.labelY + minimumGap;
+  });
+
+  const overflow = labels.length ? labels[labels.length - 1].labelY - bottom : 0;
+  if (overflow > 0) {
+    labels.forEach((label) => {
+      label.labelY -= overflow;
+    });
+    for (let index = labels.length - 2; index >= 0; index -= 1) {
+      labels[index].labelY = Math.min(
+        labels[index].labelY,
+        labels[index + 1].labelY - minimumGap,
+      );
+    }
+  }
+
+  return labels;
 }

@@ -32,6 +32,9 @@ export const initialState: ChartState = {
     transform: 'lin',
     timeframe: { ...initialRange, preset: '10Y' },
     showGridlines: true,
+    showEndLabels: true,
+    showReferenceLine: true,
+    useLinePatterns: true,
     legendPosition: 'top',
     recessionShading: false,
     title: 'Untitled chart',
@@ -86,13 +89,19 @@ function reducer(state: ChartState, action: Action): ChartState {
       return {
         ...state,
         series,
-        config: state.titleIsAutomatic
-          ? {
-              ...state.config,
-              title: buildAutomaticTitle(series),
-              subtitle: buildAutomaticSubtitle(series),
-            }
-          : state.config,
+        config: {
+          ...(state.titleIsAutomatic
+            ? {
+                ...state.config,
+                title: buildAutomaticTitle(series),
+                subtitle: buildAutomaticSubtitle(series),
+              }
+            : state.config),
+          emphasizedSeriesId:
+            state.config.emphasizedSeriesId === action.id
+              ? undefined
+              : state.config.emphasizedSeriesId,
+        },
       };
     }
     case 'UPDATE_SERIES':
@@ -290,8 +299,8 @@ export function ChartProvider({ children }: PropsWithChildren) {
       type: 'LOAD_STATE',
       state: {
         series: hydratedSeries,
-        config: preset.config,
-        exportSettings: preset.exportSettings,
+        config: { ...initialState.config, ...preset.config },
+        exportSettings: { ...initialState.exportSettings, ...preset.exportSettings },
         titleIsAutomatic: false,
       },
     });
