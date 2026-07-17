@@ -243,9 +243,38 @@ export function Inspector() {
           </div>
         </details>
 
-        <details>
+        <details open>
           <summary>Annotations</summary>
           <div className="accordion-body form-stack">
+            <div className="form-field">
+              <div className="field-label-row">
+                <label className="field-label" htmlFor="chart-title-inspector">
+                  Chart title
+                </label>
+                <button
+                  className="text-button"
+                  type="button"
+                  disabled={state.titleIsAutomatic}
+                  onClick={() => dispatch({ type: 'RESET_AUTOMATIC_TITLE' })}
+                >
+                  Use automatic title
+                </button>
+              </div>
+              <textarea
+                id="chart-title-inspector"
+                rows={2}
+                value={config.title}
+                placeholder="Enter a chart title"
+                onChange={(event) =>
+                  dispatch({
+                    type: 'SET_CONFIG',
+                    patch: { title: event.target.value },
+                    manualTitle: true,
+                  })
+                }
+              />
+              <p className="field-help">Changes update the live preview and JPG export.</p>
+            </div>
             <label>
               <span>Subtitle</span>
               <textarea

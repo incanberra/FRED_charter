@@ -80,9 +80,16 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
   const compact = width / height < 1.15;
   const footerHeight = Math.max(84, height * 0.075);
   const titleTop = Math.max(68, height * 0.06);
+  const titleSize = chartTitleSize(width);
+  const titleLineCount = Math.max(
+    1,
+    wrapText(config.title, chartTitleCharactersPerLine(width, compact)).length,
+  );
+  const wrappedTitleHeight = (titleLineCount - 1) * titleSize * 1.04;
   const plotTop =
     titleTop +
     Math.max(105, height * 0.095) +
+    wrappedTitleHeight +
     (config.legendPosition === 'top' && state.series.length ? 60 : 0);
   const legendRightWidth =
     config.legendPosition === 'right' && state.series.length
@@ -261,8 +268,14 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
         {(config.chartType === 'line' ||
           config.chartType === 'indexed' ||
           config.chartType === 'area') &&
-          prepared.map((series) => (
-            <SeriesLine key={series.id} series={series} x={x} y={y} />
+          prepared.map((series, index) => (
+            <SeriesLine
+              key={series.id}
+              series={series}
+              seriesIndex={index}
+              x={x}
+              y={y}
+            />
           ))}
 
         {config.chartType === 'bar' && (
@@ -276,7 +289,7 @@ export const ChartCanvas = forwardRef<SVGSVGElement>(function ChartCanvas(_, ref
         )}
 
         {config.chartType === 'dual-axis' && prepared[0] && (
-          <SeriesLine series={prepared[0]} x={x} y={y} />
+          <SeriesLine series={prepared[0]} seriesIndex={0} x={x} y={y} />
         )}
         {config.chartType === 'dual-axis' && prepared[1] && (
           <SecondaryBars
@@ -417,18 +430,28 @@ function ChartHeader({
   series: SeriesSelection[];
 }) {
   const { state } = useChart();
-  const titleSize = Math.max(40, Math.min(66, width / 35));
+  const titleSize = chartTitleSize(width);
   const subtitleSize = Math.max(25, Math.min(34, width / 60));
+  const titleLines = wrapText(
+    state.config.title,
+    chartTitleCharactersPerLine(width, compact),
+  );
+  const titleLineHeight = titleSize * 1.04;
+  const renderedTitleLines = Math.max(1, titleLines.length);
   return (
     <g className="chart-header">
       <text x={width * 0.065} y={titleTop} fontSize={titleSize}>
-        {truncate(state.config.title, compact ? 42 : 90)}
+        {titleLines.map((lineText, index) => (
+          <tspan key={`${lineText}-${index}`} x={width * 0.065} y={titleTop + index * titleLineHeight}>
+            {lineText}
+          </tspan>
+        ))}
       </text>
       {state.config.subtitle && (
         <text
           className="chart-subtitle"
           x={width * 0.065}
-          y={titleTop + titleSize * 0.95}
+          y={titleTop + (renderedTitleLines - 1) * titleLineHeight + titleSize * 0.95}
           fontSize={subtitleSize}
         >
           {truncate(state.config.subtitle, compact ? 55 : 125)}
@@ -445,10 +468,12 @@ function ChartHeader({
 
 function SeriesLine({
   series,
+  seriesIndex,
   x,
   y,
 }: {
   series: PreparedSeries;
+  seriesIndex: number;
   x: ScaleTime<number, number>;
   y: ScaleLinear<number, number>;
 }) {
@@ -463,6 +488,7 @@ function SeriesLine({
       className="series-line"
       d={path}
       stroke={series.color}
+      strokeDasharray={lineDash(seriesIndex)}
       vectorEffect="non-scaling-stroke"
     />
   );
@@ -694,7 +720,14 @@ function Legend({
       <g className="chart-legend">
         {series.map((item, index) => (
           <g key={item.id} transform={`translate(${x}, ${y + index * 54})`}>
-            <line x1={0} x2={35} y1={0} y2={0} stroke={item.color} />
+            <line
+              x1={0}
+              x2={35}
+              y1={0}
+              y2={0}
+              stroke={item.color}
+              strokeDasharray={lineDash(index)}
+            />
             <text x={52} y={0} dy="0.35em">
               {truncate(item.label, 26)}
             </text>
@@ -707,13 +740,20 @@ function Legend({
   let cursor = 0;
   return (
     <g className="chart-legend" transform={`translate(${x}, ${y})`}>
-      {series.map((item) => {
+      {series.map((item, index) => {
         const itemWidth = Math.min(availableWidth, 75 + item.label.length * 17);
         const current = cursor;
         cursor += itemWidth;
         return (
           <g key={item.id} transform={`translate(${current}, 0)`}>
-            <line x1={0} x2={35} y1={0} y2={0} stroke={item.color} />
+            <line
+              x1={0}
+              x2={35}
+              y1={0}
+              y2={0}
+              stroke={item.color}
+              strokeDasharray={lineDash(index)}
+            />
             <text x={52} y={0} dy="0.35em">
               {truncate(item.label, 28)}
             </text>
@@ -867,10 +907,29 @@ function wrapText(text: string, maxCharacters: number): string[] {
     }
   });
   if (lineText) lines.push(lineText);
-  return lines.slice(0, 2);
+  const visibleLines = lines.slice(0, 2);
+  if (lines.length > visibleLines.length && visibleLines.length) {
+    const finalIndex = visibleLines.length - 1;
+    visibleLines[finalIndex] = `${visibleLines[finalIndex].replace(/…$/, '').trimEnd()}…`;
+  }
+  return visibleLines;
+}
+
+function chartTitleSize(width: number): number {
+  return Math.max(40, Math.min(66, width / 35));
+}
+
+function chartTitleCharactersPerLine(width: number, compact: boolean): number {
+  const estimatedCharacters = Math.floor((width * 0.87) / (chartTitleSize(width) * 0.55));
+  return Math.max(30, Math.min(compact ? 48 : 68, estimatedCharacters));
 }
 
 function truncate(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, Math.max(1, maxLength - 1)).trim()}…`;
+}
+
+function lineDash(seriesIndex: number): string | undefined {
+  if (seriesIndex < 8) return undefined;
+  return ['18 9', '5 8', '18 7 4 7', '2 7'][(seriesIndex - 8) % 4];
 }

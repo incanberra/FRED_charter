@@ -54,6 +54,7 @@ type Action =
   | { type: 'UPDATE_SERIES'; id: string; patch: Partial<SeriesSelection> }
   | { type: 'REORDER_SERIES'; from: number; to: number }
   | { type: 'SET_CONFIG'; patch: Partial<ChartConfig>; manualTitle?: boolean }
+  | { type: 'RESET_AUTOMATIC_TITLE' }
   | { type: 'SET_TIMEFRAME'; preset: TimeframePreset; start: string; end: string }
   | { type: 'SET_EXPORT'; patch: Partial<ExportSettings> }
   | { type: 'LOAD_STATE'; state: ChartState };
@@ -112,6 +113,15 @@ function reducer(state: ChartState, action: Action): ChartState {
         ...state,
         config: { ...state.config, ...action.patch },
         titleIsAutomatic: action.manualTitle ? false : state.titleIsAutomatic,
+      };
+    case 'RESET_AUTOMATIC_TITLE':
+      return {
+        ...state,
+        config: {
+          ...state.config,
+          title: buildAutomaticTitle(state.series),
+        },
+        titleIsAutomatic: true,
       };
     case 'SET_TIMEFRAME':
       return {
