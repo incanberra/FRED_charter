@@ -34,9 +34,32 @@ npm run verify:fred
 The command starts a temporary Netlify Dev server, requests the `UNRATE` series through
 the proxy, and shuts the server down. It never prints the API key.
 
-## Production
+## Deploy to Netlify
 
-Set `FRED_API_KEY` in the Netlify site's environment variables, then deploy. The frontend calls only `/.netlify/functions/fred`; the API key and upstream FRED URL are not included in the browser bundle.
+Netlify hosts both parts of the app: the static Vite frontend and the FRED proxy
+Function. No second hosting service is required.
+
+1. Push the repository to GitHub or another Git provider.
+2. In Netlify, choose **Add new site → Import an existing project** and select the
+   repository.
+3. Netlify reads the committed `netlify.toml`, which configures:
+
+   ```text
+   Build command: npm run build
+   Publish directory: dist
+   Functions directory: netlify/functions
+   ```
+
+4. In **Site configuration → Environment variables**, add:
+
+   ```text
+   FRED_API_KEY=your_actual_fred_api_key
+   ```
+
+5. Trigger the deployment, then open the generated `netlify.app` URL.
+
+The frontend calls only `/.netlify/functions/fred`. The FRED API key remains in
+Netlify's server environment and never appears in the browser bundle or Git history.
 
 ## Architecture notes
 
