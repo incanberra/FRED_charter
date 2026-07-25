@@ -16,6 +16,19 @@ export function TopBar({ svgRef, exporting, setExporting }: TopBarProps) {
     if (name?.trim()) savePreset(name.trim());
   };
 
+  const handleClear = () => {
+    if (
+      state.series.length > 0 &&
+      !window.confirm(
+        'Clear this chart and reset all chart settings? Your saved presets will not be deleted.',
+      )
+    ) {
+      return;
+    }
+
+    dispatch({ type: 'CLEAR_CHART' });
+  };
+
   const handleExport = async () => {
     if (!svgRef.current || exporting) return;
     setExporting(true);
@@ -99,6 +112,13 @@ export function TopBar({ svgRef, exporting, setExporting }: TopBarProps) {
             </button>
           </div>
         )}
+        <button
+          className="button clear-button"
+          onClick={handleClear}
+          disabled={exporting}
+        >
+          Clear chart
+        </button>
         <button className="button secondary-button" onClick={handleSave}>
           Save preset
         </button>

@@ -229,6 +229,23 @@ button:disabled {
   background: rgb(255 255 255 / 7%);
 }
 
+.clear-button {
+  color: rgb(255 255 255 / 72%);
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.clear-button:hover {
+  color: var(--brand-white);
+  border-color: rgb(255 255 255 / 14%);
+  background: rgb(255 255 255 / 7%);
+}
+
+.clear-button:disabled {
+  color: rgb(255 255 255 / 30%);
+  background: transparent;
+}
+
 .workspace {
   min-height: 0;
   display: grid;

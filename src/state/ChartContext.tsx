@@ -60,6 +60,7 @@ type Action =
   | { type: 'RESET_AUTOMATIC_TITLE' }
   | { type: 'SET_TIMEFRAME'; preset: TimeframePreset; start: string; end: string }
   | { type: 'SET_EXPORT'; patch: Partial<ExportSettings> }
+  | { type: 'CLEAR_CHART' }
   | { type: 'LOAD_STATE'; state: ChartState };
 
 function reducer(state: ChartState, action: Action): ChartState {
@@ -148,6 +149,15 @@ function reducer(state: ChartState, action: Action): ChartState {
       return {
         ...state,
         exportSettings: { ...state.exportSettings, ...action.patch },
+      };
+    case 'CLEAR_CHART':
+      return {
+        ...initialState,
+        config: {
+          ...initialState.config,
+          timeframe: { ...initialState.config.timeframe },
+        },
+        exportSettings: { ...initialState.exportSettings },
       };
     case 'LOAD_STATE':
       return action.state;
